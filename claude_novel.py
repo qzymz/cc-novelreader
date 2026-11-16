@@ -498,7 +498,8 @@ class ScriptKeys:
                     "ctrlb": ("key", "ctrl-b"), "ctrl-b": ("key", "ctrl-b"),
                     "b": ("char", "b"), "t": ("char", "t"),
                     "n": ("char", "n"), "p": ("char", "p"),
-                    "m": ("char", "m"),
+                    "m": ("char", "m"), "d": ("char", "d"),
+                    "?": ("char", "?"),
                 }
                 if tok not in mapping:
                     raise ValueError(f"unknown --script key token: {tok!r}")
@@ -760,7 +761,8 @@ def find_chapters(text: str) -> list[tuple[str, list[str]]]:
     def flush_chapter():
         nonlocal cur_title, cur_paras
         flush_para()
-        if cur_paras:  # 无正文的空章节（如重复标题行）直接丢弃
+        if cur_paras or (cur_title is not None and VOLUME_RE.match(cur_title)):
+            # 无正文的空章节（如重复标题行）丢弃；卷标题例外——留给分卷目录当分组锚点
             chapters.append((cur_title or "正文", cur_paras))
         cur_title, cur_paras = None, []
 
@@ -976,6 +978,7 @@ class Book:
 
     def _rebuild(self):
         self.total_chars = sum(len("".join(paras)) for _, paras in self.chapters)
+        self.outline = build_outline(self.chapters)
         self._cum = self._ch_cum = None
 
     # ---- 位置定位（进度/跳转/百分比共用） --------------------------
@@ -1332,11 +1335,14 @@ class Shell:
             self._flash_restore = None
             self.draw_footer()
 
-    def update_tokens(self, n: int, pct: float | None = None, redraw: bool = True):
+    def update_tokens(self, n: int, pct: float | None = None,
+                      ch_pct: float | None = None, redraw: bool = True):
         self.tokens = n
         txt = f"{self.model} · {fmt_tokens(n)} tokens"
         if pct is not None:
             txt += f" · {pct:.0f}%"
+        if ch_pct is not None:
+            txt += f" · ch {ch_pct:.0f}%"
         self.hint_r = txt
         if redraw:
             self.draw_footer()
@@ -1416,6 +1422,35 @@ def assert_ascii_safe():
 # 10. 应用主逻辑
 # ══════════════════════════════════════════════════════════════════
 
+VOLUME_RE = re.compile(
+    r"^\s*(?:第\s*[0-9０-９零〇一二三四五六七八九十百千万两]+\s*卷"
+    r"|卷\s*[0-9０-９零〇一二三四五六七八九十]+"
+    r"|[上中下]部|序卷|总卷).{0,30}$"
+)
+
+
+def build_outline(chapters: list[tuple[str, list[str]]]) -> list[dict]:
+    """把扁平章节列表按"卷"分组：[{title, items:[(章下标, 章标题)]}]。
+    无卷标题的书 → 单一 None 组包含全部章节。卷标题自带正文时作为
+    "卷首"子项保留，保证内容可达。"""
+    vols: list[dict] = []
+    cur: dict = {"title": None, "items": []}
+    for i, (title, paras) in enumerate(chapters):
+        if VOLUME_RE.match(title):
+            if cur["title"] is not None or cur["items"]:
+                vols.append(cur)
+            cur = {"title": title, "items": []}
+            if paras:
+                cur["items"].append((i, "卷首"))
+            continue
+        cur["items"].append((i, title))
+    if cur["title"] is not None or cur["items"]:
+        vols.append(cur)
+    if not vols:
+        vols = [{"title": None, "items": []}]
+    return vols
+
+
 def paras_exhausted(book: "Book", ch: int, para: int) -> bool:
     """某章是否已经读完（无内容或进度段落指针越界）。"""
     paras = book.chapters[ch][1]
@@ -1478,7 +1513,7 @@ class App:
 
     def _open_book(self, path: Path) -> Book | None:
         try:
-            b = Book(path)
+            b = Book(path.resolve())  # 统一绝对路径：进度 key / 书库查询 / 续读三方一致
             if not any(paras for _, paras in b.chapters):
                 self.shell.print_line(f"{RED}empty book: {path.name}{RESET}")
                 return None
@@ -1523,6 +1558,7 @@ class App:
         p["books"][str(self.book.path)] = {
             "ch": self.ch, "para": self.para, "off": self.off,
             "chars": self.chars_read, "bookmarks": self.bookmarks,
+            "total": self.book.total_chars, "ts": time.time(),
         }
         p["settings"] = {"speed": self.speed, "auto": self.auto,
                          "resp": self.resp, "auto_delay": self.auto_delay,
@@ -1536,10 +1572,16 @@ class App:
             self._update_status()
 
     def _update_status(self):
-        pct = None
+        pct = chp = None
         if self.book and self.book.total_chars > 0:
             pct = min(100.0, self.chars_read * 100.0 / self.book.total_chars)
-        self.shell.update_tokens(self.chars_read // 2, pct)
+            paras = self.book.chapters[self.ch][1]
+            chap_total = sum(map(len, paras))
+            if chap_total > 0:
+                done = (self.book.offset_of(self.ch, self.para) + self.off
+                        - self.book.offset_of(self.ch, 0))
+                chp = max(0.0, min(100.0, done * 100.0 / chap_total))
+        self.shell.update_tokens(self.chars_read // 2, pct, chp)
 
     # ---- 书签 ------------------------------------------------------
     def _bookmark_add(self, name: str = ""):
@@ -1736,27 +1778,121 @@ class App:
             sh.draw_footer()
             sh.park_cursor()
 
-    def _choose_book(self) -> Book | None:
-        sh = self.shell
+    def _library_rows(self) -> list[tuple[Path | None, str]]:
+        """书库列表：[进度%] + 最近在读置顶；首项固定为导入入口。"""
         books = list_books()
         if not books:
             ensure_sample_book()
             books = list_books()
-        if not books:
+        p = load_progress()
+        cur_path = self.book.path if self.book else None
+
+        def sort_key(b: Path):
+            e = p["books"].get(str(b))
+            return (-(e.get("ts", 0) if e else 0), b.name.lower())
+
+        rows: list[tuple[Path | None, str]] = [(None, "Import a file…")]
+        for b in sorted(books, key=sort_key):
+            e = p["books"].get(str(b))
+            if e and e.get("total"):
+                tag = f"{min(100, round(e.get('chars', 0) * 100 / e['total'])):3d}%"
+            else:
+                tag = "new "
+            mark = "●" if cur_path and b == cur_path else " "
+            rows.append((b, f"{mark}[{tag}] {b.name}"))
+        return rows
+
+    def _choose_book(self) -> Book | None:
+        sh = self.shell
+        rows = self._library_rows()
+        if len(rows) == 1:
             sh.print_line(f"{RED}no books found in {books_dir()}{RESET}")
             return None
-        while True:
-            items = ["Import a file…"] + [b.name for b in books]
-            sel = self._dialog("Choose a file", items)
-            if sel is None:
-                return None
-            if sel == 0:  # 原生文件选择框导入
-                b = self._import_book()
-                if b is not None:
-                    return b
-                continue  # 取消导入 → 回到书库
-            sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} {GRAY}{books[sel - 1].name}{RESET}")
-            return self._open_book(books[sel - 1])
+        sel, offset = 1 if len(rows) > 1 else 0, 0
+        max_rows = min(12, sh.rows - FOOTER_H - 3, len(rows))
+        armed_del: tuple[int, str] | None = None  # 删除确认（同项再按一次 d）
+        sh.hint_l = "↑/↓ select · enter open · d delete · esc cancel"
+        sh.draw_footer()
+        top = sh.hist_bottom - (max_rows + 2) + 1
+        n_lines = draw_dialog(sh, top, "Choose a file",
+                              [r[1] for r in rows], sel, offset, max_rows)
+        try:
+            while True:
+                ev = self.keys.get(0.06)
+                if ev is None:
+                    continue
+                kind, val = ev
+                act = ""
+                if kind == "key":
+                    if val == "_script_end":
+                        return None
+                    if val == "up":
+                        sel = (sel - 1) % len(rows)
+                    elif val == "down":
+                        sel = (sel + 1) % len(rows)
+                    elif val == "enter":
+                        act = "open"
+                    elif val in ("esc", "ctrl-c", "ctrl-d"):
+                        return None
+                elif kind == "char":
+                    if val == " ":
+                        sel = (sel + 1) % len(rows)
+                    elif val == "d":
+                        act = "del"
+                if not act:
+                    if sel < offset:
+                        offset = sel
+                    if sel >= offset + max_rows:
+                        offset = sel - max_rows + 1
+                    n_lines = draw_dialog(sh, top, "Choose a file",
+                                          [r[1] for r in rows], sel, offset, max_rows)
+                    continue
+                if act == "del":
+                    b = rows[sel][0]
+                    if b is None or (self.book and b == self.book.path):
+                        sh.flash_hint("cannot delete the open book")
+                        continue
+                    if armed_del and armed_del[0] == sel:
+                        try:
+                            b.unlink()
+                        except OSError as e:
+                            sh.flash_hint(f"delete failed: {e}")
+                            armed_del = None
+                            continue
+                        p = load_progress()
+                        p["books"].pop(str(b), None)
+                        save_progress(p)
+                        rows.pop(sel)
+                        sh.flash_hint(f"deleted: {b.name}")
+                        armed_del = None
+                        if sel >= len(rows):
+                            sel = len(rows) - 1
+                        if len(rows) == 1:  # 只剩导入入口
+                            return None
+                    else:
+                        armed_del = (sel, b.name)
+                        sh.flash_hint(f"press d again to delete {b.name}", 3.0)
+                    n_lines = draw_dialog(sh, top, "Choose a file",
+                                          [r[1] for r in rows], sel, offset, max_rows)
+                    continue
+                # open
+                if sel == 0:
+                    b = self._import_book()
+                    if b is not None:
+                        return b
+                    rows = self._library_rows()  # 导入取消 → 刷新列表
+                    if len(rows) == 1:
+                        return None
+                    n_lines = draw_dialog(sh, top, "Choose a file",
+                                          [r[1] for r in rows], sel, offset, max_rows)
+                    continue
+                sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} {GRAY}{rows[sel][0].name}{RESET}")
+                return self._open_book(rows[sel][0])
+        finally:
+            clear_dialog(sh, top, n_lines)
+            sh.hint_l = "? for shortcuts"
+            sh.draw_footer()
+            sh.park_cursor()
 
     def _import_book(self) -> Book | None:
         """弹出系统文件选择框 → 复制进 books/ → 打开。返回 Book 或 None。"""
@@ -1783,20 +1919,118 @@ class App:
         return b
 
     def _toc_dialog(self):
-        items = []
-        for i, (title, paras) in enumerate(self.book.chapters):
-            mark = "● " if i == self.ch else "  "
-            items.append(f"{mark}{title}  ({len(paras)} paras)")
-        sel = self._dialog("Chapters", items)
-        if sel is None:
-            return
-        self.ch, self.para, self.off = sel, 0, 0
-        self.chars_read = self.book.offset_of(sel, 0)
-        self._save()
+        """分卷两级目录：卷行回车折叠/展开，章行回车跳转。
+        默认只展开当前章所在卷。"""
         sh = self.shell
-        sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} {GRAY}{items[sel][2:]}{RESET}")
-        self._update_status()
-        self._stream_chapter()
+        outline = self.book.outline
+
+        def build_rows(expanded: set) -> list[tuple]:
+            rows = []  # ("vol", 卷下标, 标题) | ("ch", 卷下标, 标题, 章下标)
+            for vi, vol in enumerate(outline):
+                rows.append(("vol", vi, vol["title"] or "正文"))
+                if vi in expanded:
+                    for ci, t in vol["items"]:
+                        rows.append(("ch", vi, t, ci))
+            return rows
+
+        expanded = {vi for vi, vol in enumerate(outline)
+                    if any(ci == self.ch for ci, _ in vol["items"])}
+        rows = build_rows(expanded)
+        if len(outline) == 1:  # 无卷 → 直接展开
+            expanded = {0}
+            rows = build_rows(expanded)
+        max_rows = min(12, sh.rows - FOOTER_H - 3, max(1, len(rows)))
+        sel = next((i for i, r in enumerate(rows)
+                    if r[0] == "ch" and r[3] == self.ch), 0)
+        offset = max(0, min(sel - max_rows // 2, max(0, len(rows) - max_rows)))
+        sh.hint_l = "↑/↓ select · enter open / expand · esc cancel"
+        sh.draw_footer()
+        top = sh.hist_bottom - (max_rows + 2) + 1
+
+        def draw():
+            w = min(sh.cols, 46)
+            head = f"╭─ Chapters "
+            head += "─" * max(1, w - dwidth(head) - 1) + "╮"
+            body = [GRAY + head + RESET]
+            for j in range(max_rows):
+                r = rows[offset + j] if offset + j < len(rows) else None
+                if r is None:
+                    body.append(GRAY + "│" + " " * (w - 2) + "│" + RESET)
+                    continue
+                kind, vi, title = r[0], r[1], r[2]
+                idx = offset + j
+                if kind == "vol":
+                    arrow = "▾" if vi in expanded else "▸"
+                    content = f"{BOLD}{arrow} {title}{RESET}"
+                    plain = f"{arrow} {title}"
+                else:
+                    mark = "●" if r[3] == self.ch else " "
+                    sel_mark = f"{ORANGE}{SYM_PROMPT}{RESET}" if idx == sel else " "
+                    content = f" {sel_mark} {mark} {title}"
+                    plain = f"   {mark} {title}"
+                pad = w - 4 - dwidth(plain)
+                body.append(GRAY + "│ " + RESET + content
+                            + " " * max(0, pad) + GRAY + " │" + RESET)
+            body.append(GRAY + "╰" + "─" * (w - 2) + "╯" + RESET)
+            sys.stdout.write("".join(CUP(top + j, 1) + EL + ln
+                                     for j, ln in enumerate(body)))
+            sys.stdout.flush()
+            return len(body)
+
+        n_lines = draw()
+        try:
+            while True:
+                ev = self.keys.get(0.06)
+                if ev is None:
+                    continue
+                kind, val = ev
+                act = ""
+                if kind == "key":
+                    if val == "_script_end":
+                        return
+                    if val == "up":
+                        sel = (sel - 1) % len(rows)
+                    elif val == "down":
+                        sel = (sel + 1) % len(rows)
+                    elif val == "enter":
+                        act = "go"
+                    elif val in ("esc", "ctrl-c", "ctrl-d"):
+                        return
+                elif kind == "char":
+                    if val == " ":
+                        sel = (sel + 1) % len(rows)
+                if not act:
+                    if sel < offset:
+                        offset = sel
+                    if sel >= offset + max_rows:
+                        offset = sel - max_rows + 1
+                    n_lines = draw()
+                    continue
+                row = rows[sel]
+                if row[0] == "vol":  # 折叠/展开
+                    vi = row[1]
+                    if vi in expanded:
+                        expanded.discard(vi)
+                    else:
+                        expanded.add(vi)
+                    keep = sel
+                    rows = build_rows(expanded)
+                    sel = min(keep, len(rows) - 1)
+                    n_lines = draw()
+                    continue
+                ch_idx = row[3]
+                self.ch, self.para, self.off = ch_idx, 0, 0
+                self.chars_read = self.book.offset_of(ch_idx, 0)
+                self._save()
+                sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} {GRAY}{row[2]}{RESET}")
+                self._update_status()
+                self._stream_chapter()
+                return
+        finally:
+            clear_dialog(sh, top, n_lines)
+            sh.hint_l = "? for shortcuts"
+            sh.draw_footer()
+            sh.park_cursor()
 
     def _help_dialog(self):
         items = [
@@ -2652,6 +2886,21 @@ def run_selftest():
     ok &= _t("paras_exhausted", paras_exhausted(_sb, 0, len(_sb.chapters[0][1]))
              and not paras_exhausted(_sb, 0, 0)
              and paras_exhausted(_sb, 0, 10 ** 6))
+
+    # ---- 分卷两级目录 ----
+    vol_text = ("第一卷 风起\n\n卷首引言。\n\n第一章 起\n\n甲。\n\n第二章 承\n\n乙。\n\n"
+                "第二卷 云涌\n\n第三章 转\n\n丙。\n\n第四章 合\n\n丁。\n\n")
+    vch = find_chapters(vol_text)
+    outline = build_outline(vch)
+    ok &= _t("outline two volumes", len(outline) == 2
+             and outline[0]["title"] == "第一卷 风起"
+             and [t for _, t in outline[0]["items"]] == ["卷首", "第一章 起", "第二章 承"]
+             and [t for _, t in outline[1]["items"]] == ["第三章 转", "第四章 合"])
+    ok &= _t("outline no volume single group",
+             len(build_outline(find_chapters("第一章 a\n\nx。\n\n第二章 b\n\ny。\n\n"))) == 1
+             and build_outline(find_chapters("第一章 a\n\nx。\n\n"))[0]["title"] is None)
+    ok &= _t("volume regex", bool(VOLUME_RE.match("第一卷 风起")) and bool(VOLUME_RE.match("上部"))
+             and not VOLUME_RE.match("第一章 起") and not VOLUME_RE.match("卷帘门"))
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / "a.txt"
         src.write_text("hello", encoding="utf-8")

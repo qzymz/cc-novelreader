@@ -228,7 +228,7 @@ WELCOME_COMMANDS = [
     ("m / bm", "Add bookmark / bookmark list"),
     ("goto · find", "Quick jump & full-text search"),
     ("speed 1-10", "Set streaming speed"),
-    ("auto", "Toggle auto-continue"),
+    ("resp · auto N", "Reply length / auto-read interval"),
     ("boss", "Boss mode (instant cover)"),
     ("help", "Show all shortcuts"),
 ]
@@ -296,7 +296,7 @@ USER_PROMPTS = ["继续", "接着读", "然后呢", "继续下一章", "讲下�
 
 # 斜杠命令补全菜单（cmd, 说明, 需要参数）
 FAKE_COMMANDS = [
-    ("/auto", "Toggle auto-continue", False),
+    ("/auto", "Auto-read (N = interval s)", True),
     ("/bm", "Bookmarks — enter jump · d delete", False),
     ("/bm add", "Add bookmark (optional name)", False),
     ("/book", "Open book library", False),
@@ -311,6 +311,7 @@ FAKE_COMMANDS = [
     ("/model", "Set status model name", True),
     ("/next", "Next chapter", False),
     ("/prev", "Previous chapter", False),
+    ("/resp", "Reply length in chars", True),
     ("/speed", "Streaming speed 1-10", True),
     ("/toc", "Chapter list", False),
     ("/tools", "Toggle fake tool calls", False),
@@ -1415,6 +1416,12 @@ def assert_ascii_safe():
 # 10. 应用主逻辑
 # ══════════════════════════════════════════════════════════════════
 
+def paras_exhausted(book: "Book", ch: int, para: int) -> bool:
+    """某章是否已经读完（无内容或进度段落指针越界）。"""
+    paras = book.chapters[ch][1]
+    return (not paras) or para >= len(paras)
+
+
 class App:
     def __init__(self, args):
         self.args = args
@@ -1425,6 +1432,8 @@ class App:
         self.para = 0
         self.off = 0
         self.speed = max(1, min(10, args.speed))
+        self.resp = 1200      # 每轮回复的字符额度（段边界停）
+        self.auto_delay = 2.2  # 自动阅读轮间隔（秒）
         self.auto = args.auto
         self.show_tools = not args.no_tools
         self.chars_read = 0
@@ -1483,6 +1492,8 @@ class App:
         s = p.get("settings", {})
         if s:
             self.speed = s.get("speed", self.speed)
+            self.resp = max(50, min(20000, s.get("resp", self.resp)))
+            self.auto_delay = max(0.3, min(10.0, s.get("auto_delay", self.auto_delay)))
             self.auto = s.get("auto", self.auto)
             self.show_tools = s.get("tools", self.show_tools)
             if s.get("model"):
@@ -1514,6 +1525,7 @@ class App:
             "chars": self.chars_read, "bookmarks": self.bookmarks,
         }
         p["settings"] = {"speed": self.speed, "auto": self.auto,
+                         "resp": self.resp, "auto_delay": self.auto_delay,
                          "tools": self.show_tools, "model": self.shell.model}
         save_progress(p)
         self._last_save = time.time()
@@ -1805,7 +1817,8 @@ class App:
             "/ch 12          jump to chapter #12",
             "/find keyword   full-text search & jump",
             "/speed 1-10     streaming speed",
-            "/auto           toggle auto-continue",
+            "/resp 2000      reply length in chars per turn",
+            "/auto [N]       auto-read (N = interval seconds)",
             "/tools          toggle fake tool calls",
             "/book           open book library",
             "/model NAME     model name in status bar",
@@ -2134,9 +2147,27 @@ class App:
             else:
                 sh.flash_hint("usage: /speed 1-10")
             return True
+        m = re.match(r"/resp\s+(\d+)", low)
+        if m:
+            self.resp = max(50, min(20000, int(m.group(1))))
+            self._save()
+            sh.flash_hint(f"reply length = {self.resp} chars per turn")
+            return True
+        if low in ("/resp", "resp"):
+            sh.flash_hint(f"reply length = {self.resp} — usage: /resp 2000")
+            return True
+        m = re.match(r"/auto\s+(\d+(?:\.\d+)?)", low)
+        if m:
+            self.auto_delay = max(0.3, min(10.0, float(m.group(1))))
+            self.auto = True
+            self._save()
+            sh.flash_hint(f"auto-read on · interval {self.auto_delay}s")
+            return True
         if low in ("/auto", "auto"):
             self.auto = not self.auto
-            sh.flash_hint(f"auto-continue {'on' if self.auto else 'off'}")
+            self._save()
+            sh.flash_hint(f"auto-read {'on' if self.auto else 'off'}"
+                          + (f" · interval {self.auto_delay}s" if self.auto else ""))
             return True
         if low in ("/tools", "tools"):
             self.show_tools = not self.show_tools
@@ -2217,13 +2248,15 @@ class App:
                     continue
                 self.shell.flash_hint("no more chapters")
                 break
-            if (result == "eof" and self.auto
-                    and self.ch + 1 < len(self.book.chapters)):
+            if self.auto and self.running and (
+                    result == "chunk"
+                    or (result == "eof" and self.ch + 1 < len(self.book.chapters))):
                 if self._auto_wait() == "go":
-                    self.ch += 1
-                    self.para = self.off = 0
-                    self.chars_read = self.book.offset_of(self.ch, 0)
-                    self._save()
+                    if result == "eof":  # 章结束 → 进下一章；chunk → 续读本章剩余
+                        self.ch += 1
+                        self.para = self.off = 0
+                        self.chars_read = self.book.offset_of(self.ch, 0)
+                        self._save()
                     result = self._stream_once()
                     continue
                 result = None  # 停止 auto，但仍让本轮 pending（若有）生效
@@ -2236,7 +2269,7 @@ class App:
         sh.hint_l = ""
         sh.draw_footer()
         t0 = time.time()
-        while time.time() - t0 < 2.2:
+        while time.time() - t0 < self.auto_delay:
             self._spin_tick()
             ev = self.keys.get(0.08)
             if ev:
@@ -2251,6 +2284,16 @@ class App:
 
     def _stream_once(self) -> str:
         sh = self.shell
+        # 当前章已读完 → 续读自动进入下一章（否则会永远停在原地）
+        if paras_exhausted(self.book, self.ch, self.para):
+            if self.ch + 1 < len(self.book.chapters):
+                self.ch += 1
+                self.para = self.off = 0
+                self.chars_read = self.book.offset_of(self.ch, 0)
+                self._save()
+            else:
+                sh.flash_hint("book finished — /goto 0% to restart")
+                return "book_end"
         title, paras = self.book.chapters[self.ch]
         fresh = self.para == 0 and self.off == 0
         if fresh:
@@ -2285,7 +2328,10 @@ class App:
         self._end_stream_ui()
         if result == "eof":
             self._save()
-            sh.flash_hint("chapter finished — enter to continue", 3.0)
+            if self.ch + 1 < len(self.book.chapters):
+                sh.flash_hint("chapter finished — enter to continue", 3.0)
+            else:
+                sh.flash_hint("book finished — /goto 0% to restart", 3.0)
         return result
 
     def _end_stream_ui(self):
@@ -2297,11 +2343,13 @@ class App:
         sys.stdout.flush()
 
     def _stream_paragraphs(self, paras: list[str]) -> str:
-        """逐字打出当前章剩余段落。返回 'eof' | 'interrupted'。"""
+        """逐字打出当前章剩余段落，受每轮回复字数额度限制。
+        返回 'eof'（本章读完）| 'chunk'（额度用完，段落边界停）| 'interrupted'。"""
         sh = self.shell
         cps = 30 * self.speed
         tick = 0.03
         burst = max(1, round(cps * tick))
+        budget = self.resp  # 本轮还可输出的字符数
         paused = False
         while self.para < len(paras):
             para = paras[self.para]
@@ -2315,6 +2363,7 @@ class App:
                         sh.type_fragment(frag)
                         self.chars_read += len(frag)
                         self.off += len(frag)
+                        budget -= len(frag)
                         self._maybe_save()
                     ev = self.keys.get(tick if not paused else 0.05)
                     if ev:
@@ -2335,6 +2384,8 @@ class App:
             self.off = 0
             sh.print_line("")
             self._save()
+            if budget <= 0:  # 额度用完：在段边界优雅收尾，回车继续下一轮
+                return "chunk"
         return "eof"
 
     def _stream_key(self, ev, in_text: bool) -> str:
@@ -2593,6 +2644,11 @@ def run_selftest():
     ok &= _t("fake bash git status", fake_bash_result("git status") ==
              "nothing to commit, working tree clean")
     ok &= _t("/import in commands", any(c[0] == "/import" for c in FAKE_COMMANDS))
+    ok &= _t("/resp in commands", any(c[0] == "/resp" for c in FAKE_COMMANDS))
+    _sb = Book(books_dir() / "示例小说.txt")
+    ok &= _t("paras_exhausted", paras_exhausted(_sb, 0, len(_sb.chapters[0][1]))
+             and not paras_exhausted(_sb, 0, 0)
+             and paras_exhausted(_sb, 0, 10 ** 6))
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / "a.txt"
         src.write_text("hello", encoding="utf-8")

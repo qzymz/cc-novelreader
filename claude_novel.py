@@ -1107,8 +1107,9 @@ def make_sample_epub(path: Path):
 def ensure_sample_book():
     d = books_dir()
     d.mkdir(parents=True, exist_ok=True)
-    if not list_books():
+    if not (d / "示例小说.txt").exists():  # 缺哪本补哪本（误删自愈）
         (d / "示例小说.txt").write_text(SAMPLE_NOVEL, encoding="utf-8")
+    if not (d / "样章.epub").exists():
         try:
             make_sample_epub(d / "样章.epub")
         except Exception:

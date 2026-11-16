@@ -2883,6 +2883,7 @@ def run_selftest():
              "nothing to commit, working tree clean")
     ok &= _t("/import in commands", any(c[0] == "/import" for c in FAKE_COMMANDS))
     ok &= _t("/resp in commands", any(c[0] == "/resp" for c in FAKE_COMMANDS))
+    ensure_sample_book()
     _sb = Book(books_dir() / "示例小说.txt")
     ok &= _t("paras_exhausted", paras_exhausted(_sb, 0, len(_sb.chapters[0][1]))
              and not paras_exhausted(_sb, 0, 0)

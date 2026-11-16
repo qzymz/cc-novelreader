@@ -2055,6 +2055,9 @@ class App:
                     sh.park_cursor()
             else:  # 字符输入
                 if not sh.input_text:  # 空输入时的单键快捷方式
+                    if val == "?":  # 底栏提示 "? for shortcuts"——按 ? 直接弹帮助
+                        self._help_dialog()
+                        continue
                     if val == " ":
                         self._stream_chapter()
                         continue

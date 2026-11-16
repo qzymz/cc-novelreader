@@ -1,0 +1,14 @@
+.venv/
+build/
+dist/
+__pycache__/
+*.tmp
+.claude-reader.json
+demo_output.txt
+demo_exe.txt
+script_out*.txt
+script_exe.txt
+.key_debug.log
+tools/_tmp*/
+tools/_import_src/
+tools/_probe_result.txt

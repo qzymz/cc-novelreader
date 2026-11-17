@@ -29,14 +29,17 @@
 
 ## 快速开始
 
-### Windows（exe）
+### Windows 两种安装形态
 
-从 [Releases](../../releases) 下载 `cc-novelreader-windows` 里的 exe
-（或自己打包，见下文），放到任意目录：
+**① 便携版（即开即用）**：运行 `pack_portable.bat` 产出
+`release/ccreader-portable-v*.zip`（或从 [Releases](../../releases) 下载），解压后
+双击 `ccreader.exe` 即可，包里含示例书库、安装器与使用说明。
 
-```
-cc-novelreader.exe
-```
+**② 命令行版（全局命令 ccreader）**：双击 `install.bat`（便携包里也有），安装到
+`%LOCALAPPDATA%/ccreader` 并写入用户 PATH（无需管理员）。之后**新开任意终端窗口**
+（cmd / PowerShell / Windows Terminal / VSCode 终端）输入 `ccreader` 回车即开；
+书库在 `%LOCALAPPDATA%/ccreader/books`；也可以直接开书：`ccreader "D:/books/某书.txt"`。
+卸载：双击 `uninstall.bat`。
 
 首次运行自动生成示例小说。把你的小说（.txt / .epub）放进 exe 旁的 `books\`
 文件夹即可，四种导入方式：

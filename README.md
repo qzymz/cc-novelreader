@@ -71,7 +71,8 @@ python3 claude_novel.py [某本书.txt] [--speed 1-10] [--auto]
 | `n` / `p` | 下一章 / 上一章（空闲或流式中均可） |
 | `t` | 章节目录（Claude 风格选择框） |
 | `m` | 在当前位置加书签（自动以章节名命名） |
-| **`b` / `Ctrl+B`** | **老板键**：清屏（含 scrollback）+ 全屏英文假工作日志，再按恢复 |
+| **`b` / `Ctrl+B` / 三连回车** | **老板键**：清屏（含 scrollback）+ 全屏假输出，再按恢复；
+                             快速连按 3 下回车（0.9s 内）也可触发——手不离回车键 |
 | `i` | 导入书本（系统文件选择框） |
 | `Ctrl+C` ×2 / `Ctrl+D` / `/exit` | 退出（自动保存进度） |
 
@@ -103,7 +104,9 @@ python3 claude_novel.py [某本书.txt] [--speed 1-10] [--auto]
 - 底部状态栏实时显示 `opus-4.8 · 12.3k tokens · 37%`（token 数与百分比随
   真实阅读量增长）
 - 终端窗口标题设置为 Claude Code 同款
-- 老板键 `b`：`ESC[3J` 清空 scrollback 后切入假工作状态（Read/Edit/Bash/Grep
+- 老板键（`b` / 三连回车）：`ESC[3J` 清空 scrollback 后切入假工作状态；
+  `/boss build`（默认）= 普通程序输出（npm/vitest/git 日志，无 AI 痕迹），
+  `/boss claude` = Claude 工具调用日志（Read/Edit/Bash/Grep
   日志持续滚动，全英文无中文），退出时再清一次
 - 进度按**每本书**保存在 exe 旁的 `.claude-reader.json`，换书再换回自动接续
 

@@ -231,7 +231,7 @@ WELCOME_COMMANDS = [
     ("goto · find", ("Quick jump & full-text search", "快速跳转 · 全文搜索")),
     ("speed 1-10", ("Set streaming speed", "流式速度")),
     ("resp · auto N", ("Reply length / auto-read interval", "每轮字数 / 自动阅读间隔")),
-    ("boss", ("Boss mode (instant cover)", "老板模式（一键掩护）")),
+    ("boss", ("Boss mode — b or triple-Enter", "老板模式（b / 三连回车触发）")),
     ("help", ("Show all shortcuts", "显示全部快捷键")),
 ]
 
@@ -321,7 +321,7 @@ FAKE_COMMANDS = [
     ("/bm", ("Bookmarks — enter jump · d delete", "书签（回车跳转 · d 删除）"), False),
     ("/bm add", ("Add bookmark (optional name)", "在当前位置加书签（可命名）"), False),
     ("/book", ("Open book library", "打开书库"), False),
-    ("/boss", ("Boss mode", "老板模式"), False),
+    ("/boss", ("Boss mode (build|claude style)", "老板模式（样式 build/claude；b 或三连回车触发）"), True),
     ("/ch", ("Jump to chapter N", "跳到第 N 章"), True),
     ("/clear", ("Clear screen", "清屏"), False),
     ("/exit", ("Quit", "退出"), False),
@@ -1200,6 +1200,7 @@ class Shell:
         self.hint_l = tr("? for shortcuts", "？查看快捷键")
         self.hint_r = ""
         self.model = "opus-4.8"
+        self.boss_plain = ""   # 非空 = 老板模式纯程序输出页脚（值为假命令）
         self.tokens = 0
         self._flash_restore = None
 
@@ -1321,6 +1322,14 @@ class Shell:
         return "│ " + f"{ORANGE}{SYM_PROMPT}{RESET} " + body + "│"
 
     def draw_footer(self):
+        if self.boss_plain:  # build 样式：只剩一行 $ 命令，其余留白
+            row = f" {GRAY}${self.boss_plain}{RESET}"
+            rows = [(self.rows - 4, vtruncate(row, self.cols - 1)),
+                    (self.rows - 3, ""), (self.rows - 2, ""),
+                    (self.rows - 1, ""), (self.rows, "")]
+            sys.stdout.write("".join(CUP(r, 1) + EL + c for r, c in rows))
+            sys.stdout.flush()
+            return
         top = "╭" + "─" * (self.cols - 2) + "╮"
         bot = "╰" + "─" * (self.cols - 2) + "╯"
         rows = [
@@ -1433,6 +1442,38 @@ def fake_tool_group() -> list[str]:
     return [head, res]
 
 
+_BUILD_FILES = ["src/utils/retry.ts", "src/api/orders.ts", "src/lib/cache.go",
+               "web/src/components/OrderList.tsx", "internal/auth/session.go",
+               "src/modules/payment.ts", "app/models/user.py", "src/hooks/useFetch.ts"]
+_BUILD_CMDS = ["npm run dev", "npm test", "go test ./...", "pnpm build", "vitest --watch"]
+
+
+def fake_build_log() -> str:
+    """老板模式 build 样式：一条普通程序输出（构建/测试/git 日志，无中文）。"""
+    kind = random.random()
+    f = f"src/{random.choice(FAKE_DIRS).split('/')[-1]}/{random.choice(FAKE_FILES)}"
+    if kind < 0.30:
+        return f"✓ {random.choice(_BUILD_FILES)} ({random.randint(2, 24)} tests) {random.randint(8, 340)}ms"
+    if kind < 0.50:
+        return f"[vite] hmr update /{random.choice(_BUILD_FILES)} (x{random.randint(1, 4)})"
+    if kind < 0.65:
+        return random.choice([
+            f"webpack compiled with 1 warning in {random.uniform(1.2, 9):.1f}s",
+            f"tsc: {random.randint(0, 3)} errors, {random.randint(0, 12)} warnings in {random.uniform(0.8, 4):.1f}s",
+            f"PASS {random.choice(_BUILD_FILES).replace('.ts', '_test.go')} {random.uniform(0.2, 1.8):.2f}s",
+        ])
+    if kind < 0.82:
+        return random.choice([
+            f"[main {random.randint(1000000, 9999999):x}] fix: handle retry backoff",
+            f"  {random.randint(1, 5)} files changed, {random.randint(3, 120)} insertions(+)",
+            "Watching for file changes...",
+        ])
+    return random.choice([
+        f"rendering chunks... {random.randint(100, 900)}/{random.randint(1000, 4000)}",
+        f"✓ built in {random.uniform(0.9, 8):.1f}s",
+    ])
+
+
 def assert_ascii_safe():
     for _ in range(300):
         for line in fake_tool_group():
@@ -1502,6 +1543,8 @@ class App:
         self._hist_idx: int | None = None
         self._pending: str | None = None
         self._menu: dict | None = None        # 补全菜单状态
+        self._enter_ts: list[float] = []      # 回车时间戳（三连回车=老板键）
+        self.boss_style = "build"             # 老板屏样式：build=普通程序输出 / claude
         self._ph_i = random.randrange(len(PLACEHOLDERS[_LANG]))
         self._ph_t = time.time()
         self._last_save = 0.0
@@ -1555,6 +1598,7 @@ class App:
             self.auto_delay = max(0.3, min(10.0, s.get("auto_delay", self.auto_delay)))
             self.auto = s.get("auto", self.auto)
             self.show_tools = s.get("tools", self.show_tools)
+            self.boss_style = s.get("boss_style", "build") if s.get("boss_style") in ("build", "claude") else "build"
             if s.get("model"):
                 self.shell.model = s["model"]
         entry = p.get("books", {}).get(str(self.book.path))
@@ -1586,7 +1630,8 @@ class App:
         }
         p["settings"] = {"speed": self.speed, "auto": self.auto,
                          "resp": self.resp, "auto_delay": self.auto_delay,
-                         "tools": self.show_tools, "model": self.shell.model, "lang": _LANG}
+                         "tools": self.show_tools, "model": self.shell.model, "lang": _LANG,
+                         "boss_style": self.boss_style}
         save_progress(p)
         self._last_save = time.time()
 
@@ -2064,6 +2109,7 @@ class App:
             "t                章节目录（分卷折叠）",
             "m                在当前位置加书签",
             "b / Ctrl+B       老板模式（一键掩护）",
+            "三连回车          老板模式（0.9 秒内连按 3 下回车）",
             "Esc              中断流式 / 清空输入框",
             "↑ / ↓（输入中）   历史命令召回 / 菜单选择",
             "Tab              补全菜单选中项",
@@ -2092,6 +2138,7 @@ class App:
             "t               chapter list (volumes)",
             "m               add bookmark here",
             "b / ctrl-b      boss mode",
+            "enter x3        boss mode (rapid triple Enter)",
             "esc             interrupt streaming / clear input",
             "↑/↓ (typing)    history recall / menu select",
             "tab             complete menu selection",
@@ -2206,6 +2253,13 @@ class App:
             sh.draw_footer()
             sh.park_cursor()
 
+    def _tap_enter(self) -> bool:
+        """记录一次回车；0.9 秒内第 3 次回车 = 老板键触发。"""
+        now = time.time()
+        self._enter_ts.append(now)
+        self._enter_ts = [t for t in self._enter_ts if now - t <= 0.9]
+        return len(self._enter_ts) >= 3
+
     def _fake_bash(self, c: str):
         sh = self.shell
         c = c or "echo ok"
@@ -2274,6 +2328,10 @@ class App:
                     self._menu_clear()
                     self._boss_mode()
                 elif val == "enter":
+                    if self._tap_enter():  # 快速三连回车 = 老板键
+                        self._menu_clear()
+                        self._boss_mode()
+                        continue
                     if self._menu and self._menu["kind"] == "slash":
                         self._menu_complete(exec_after=True)
                     else:
@@ -2479,6 +2537,13 @@ class App:
             return True
         if low in ("/lang", "lang"):
             sh.flash_hint(tr("usage: /lang zh | en", "用法：/lang zh | en"))
+            return True
+        m = re.match(r"/boss\s+(build|claude)", low)
+        if m:
+            self.boss_style = m.group(1)
+            self._save()
+            sh.flash_hint(tr(f"boss style: {self.boss_style}",
+                             f"老板屏样式：{'普通程序输出' if self.boss_style == 'build' else 'Claude 工具日志'}"))
             return True
         if low in ("/boss", "boss"):
             self._boss_mode()
@@ -2700,8 +2765,11 @@ class App:
                 return "boss"
             if val in ("ctrl-c", "esc"):
                 return "stop"
-            if val == "enter" and in_text:
-                return "stop"
+            if val == "enter":
+                if self._tap_enter():
+                    return "boss"
+                if in_text:
+                    return "stop"
         else:
             if val == " ":
                 return "pause"
@@ -2728,45 +2796,57 @@ class App:
 
     # ---- 老板模式 ----------------------------------------------------
     def _boss_mode(self):
+        """老板键：清屏（含 scrollback）+ 全屏假输出。
+        样式 build=普通程序输出（无 Claude 元素）；claude=工具调用日志。
+        触发：b / Ctrl+B / 快速三连回车；退出：b / Esc / Ctrl+B。"""
         sh = self.shell
+        build = self.boss_style == "build"
         self._save()
+        self._enter_ts.clear()  # 防止退出瞬间又被三连回车触发
         sys.stdout.write(CLEAR_SCROLLBACK + CLEAR_SCREEN)
         sh.check_resize()
-        sh.cwd = random.choice(["~/work/api-gateway", "~/work/admin-console",
-                                "~/work/payment-svc", "~/dev/infra-tooling"])
-        sh.set_spinner(True, random.choice(SPINNER_PHRASES) + "…")
-        sh.hint_l = ""
         sh.input_text, sh.input_pos = "", 0
-        sh.draw_footer()
-        set_title("Claude Code")
+        if build:
+            sh.boss_plain = random.choice(_BUILD_CMDS)
+            sh.cwd = sh.boss_plain
+            sh.set_spinner(False)
+            sh.hint_l = ""
+            sh.draw_footer()
+            set_title(sh.boss_plain + " — terminal")
+        else:
+            sh.boss_plain = ""
+            sh.cwd = random.choice(["~/work/api-gateway", "~/work/admin-console",
+                                    "~/work/payment-svc", "~/dev/infra-tooling"])
+            sh.set_spinner(True, random.choice(SPINNER_PHRASES) + "…")
+            sh.hint_l = ""
+            sh.draw_footer()
+            set_title("Claude Code")
         next_log = 0.0
         while True:
             ev = self.keys.get(0.05)
             now = time.time()
-            self._spin_tick()
+            if not build:
+                self._spin_tick()
             if now >= next_log:
-                next_log = now + random.uniform(0.35, 0.95)
-                for ln in fake_tool_group():
-                    sh.print_line(ln)
+                next_log = now + (random.uniform(0.2, 0.7) if build
+                                  else random.uniform(0.35, 0.95))
+                if build:
+                    sh.print_line(fake_build_log())
+                else:
+                    for ln in fake_tool_group():
+                        sh.print_line(ln)
             if ev:
                 kind, val = ev
-                quit_key = (kind == "key" and val in ("b", "ctrl-b", "esc", "_script_end")) or \
-                           (kind == "char" and val == "b")
+                quit_key = (kind == "key" and val in ("b", "ctrl-b", "esc", "_script_end")) or                            (kind == "char" and val == "b")
                 if quit_key:
                     break
         # 退出时再清一次，抹掉小说残留
         sys.stdout.write(CLEAR_SCROLLBACK + CLEAR_SCREEN)
+        sh.boss_plain = ""
         sh.cwd = f"~/books/{self.book.title} (main)"
         sh.set_spinner(False)
         sh.hint_l = tr("? for shortcuts", "？查看快捷键")
         self._update_status()
-
-
-# ══════════════════════════════════════════════════════════════════
-# 11. --demo：无 TTY 演示
-# ══════════════════════════════════════════════════════════════════
-
-class _NoKeys:
     def get(self, timeout):
         time.sleep(0.01)
         return None
@@ -2828,6 +2908,19 @@ def run_demo(args):
 # ══════════════════════════════════════════════════════════════════
 # 12. --selftest：内置自检
 # ══════════════════════════════════════════════════════════════════
+
+def _TAP_DEMO() -> bool:
+    """三连回车检测器：快速三次触发，陈旧记录不触发。"""
+    import argparse
+    app = App(argparse.Namespace(speed=5, auto=False, no_tools=False))
+    app._enter_ts = []
+    if app._tap_enter() or app._tap_enter():     # 前两次不触发
+        return False
+    if not app._tap_enter():                     # 0.9 秒内第三次 → 触发
+        return False
+    app._enter_ts = [time.time() - 5, time.time() - 4, time.time() - 3]
+    return not app._tap_enter()                  # 陈旧回车不算
+
 
 def _t(name, cond):
     print(f"  [{'PASS' if cond else 'FAIL'}] {name}")
@@ -2946,6 +3039,10 @@ def run_selftest():
     ok &= _t("/import in commands", any(c[0] == "/import" for c in FAKE_COMMANDS))
     ok &= _t("/resp in commands", any(c[0] == "/resp" for c in FAKE_COMMANDS))
     ok &= _t("/lang in commands", any(c[0] == "/lang" for c in FAKE_COMMANDS))
+    ok &= _t("build log no CJK", all(not any("一" <= c <= "鿿" for c in fake_build_log())
+                                     for _ in range(300)))
+    ok &= _t("triple-enter detector", _TAP_DEMO())
+    ok &= _t("/boss arg flag", next(c for c in FAKE_COMMANDS if c[0] == "/boss")[2] is True)
     ok &= _t("tr/L language switch",
              tr("en-text", "中文字") == "中文字" and L(("en", "中")) == "中"
              and set_lang("en") == "en" and tr("en-text", "中文字") == "en-text"

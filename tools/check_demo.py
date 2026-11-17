@@ -29,7 +29,7 @@ checks = {
     "cwd row": any("~/books" in l for l in lines),
     "input box top": any(l.startswith("╭") and l.endswith("╮") for l in lines),
     "input prompt": any("❯" in l for l in lines),
-    "hint row": any("? for shortcuts" in l for l in lines),
+    "hint row": any("? for shortcuts" in l or "？查看快捷键" in l for l in lines),
     "token status": any("tokens" in l for l in lines),
 }
 fails = 0

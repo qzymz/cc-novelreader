@@ -89,7 +89,8 @@ python3 claude_novel.py [某本书.txt] [--speed 1-10] [--auto]
   `/speed 1-10` 流速 · **`/resp 2000` 每轮回复字数**（默认 1200，段边界停，
   读完一章回车自动进下一章）· **`/auto [N]` 自动阅读**（挂机连读，N 为轮间隔秒）·
   `/tools` 假工具行开关 ·
-  `/model 名字` 改状态栏模型名 · `/import` 导入 · `/clear` 清屏 · `/help` 帮助
+  `/model 名字` 改状态栏模型名 · `/import` 导入 · **`/lang zh|en` 界面语言（默认中文，
+  提示/菜单/对话框全汉化；spinner 与假工具行保持英文以维持伪装）** · `/clear` 清屏 · `/help` 帮助
 
 ## 伪装细节
 

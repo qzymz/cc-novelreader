@@ -221,16 +221,16 @@ SYM_PROMPT = "❯"
 WELCOME_TITLE_PLAIN = f"{SYM_LOGO} Welcome to Claude Code"
 
 WELCOME_COMMANDS = [
-    ("book", "Open book library"),
-    ("import", "Browse & import a book file"),
-    ("toc", "Show chapter list"),
-    ("next / prev", "Next / previous chapter"),
-    ("m / bm", "Add bookmark / bookmark list"),
-    ("goto · find", "Quick jump & full-text search"),
-    ("speed 1-10", "Set streaming speed"),
-    ("resp · auto N", "Reply length / auto-read interval"),
-    ("boss", "Boss mode (instant cover)"),
-    ("help", "Show all shortcuts"),
+    ("book", ("Open book library", "打开书库")),
+    ("import", ("Browse & import a book file", "导入书本（浏览文件）")),
+    ("toc", ("Show chapter list", "章节目录（分卷折叠）")),
+    ("next / prev", ("Next / previous chapter", "下一章 / 上一章")),
+    ("m / bm", ("Add bookmark / bookmark list", "加书签 / 书签列表")),
+    ("goto · find", ("Quick jump & full-text search", "快速跳转 · 全文搜索")),
+    ("speed 1-10", ("Set streaming speed", "流式速度")),
+    ("resp · auto N", ("Reply length / auto-read interval", "每轮字数 / 自动阅读间隔")),
+    ("boss", ("Boss mode (instant cover)", "老板模式（一键掩护）")),
+    ("help", ("Show all shortcuts", "显示全部快捷键")),
 ]
 
 # Claude Code 风格 spinner 短语（原味趣味进行时，纯 ASCII）
@@ -294,37 +294,56 @@ SPINNER_PHRASES = [
 
 USER_PROMPTS = ["继续", "接着读", "然后呢", "继续下一章", "讲下去", "继续讲"]
 
-# 斜杠命令补全菜单（cmd, 说明, 需要参数）
+# ---- 界面语言（/lang zh|en 切换；伪装核心元素恒为英文） ------------
+_LANG = "zh"
+
+
+def set_lang(lang) -> str:
+    global _LANG
+    _LANG = "zh" if str(lang or "").lower().startswith("zh") else "en"
+    return _LANG
+
+
+def tr(en: str, zh: str) -> str:
+    return zh if _LANG == "zh" else en
+
+
+def L(pair: tuple) -> str:
+    """双语描述对 (en, zh) → 当前语言。"""
+    return pair[1] if _LANG == "zh" else pair[0]
+
+
+# 斜杠命令补全菜单（cmd, (英文说明, 中文说明), 需要参数）
 FAKE_COMMANDS = [
-    ("/auto", "Auto-read (N = interval s)", True),
-    ("/bm", "Bookmarks — enter jump · d delete", False),
-    ("/bm add", "Add bookmark (optional name)", False),
-    ("/book", "Open book library", False),
-    ("/boss", "Boss mode", False),
-    ("/ch", "Jump to chapter N", True),
-    ("/clear", "Clear screen", False),
-    ("/exit", "Quit", False),
-    ("/find", "Search in book", True),
-    ("/goto", "Jump to percent (e.g. 50%)", True),
-    ("/help", "Show shortcuts", False),
-    ("/import", "Import a book file (browse)", False),
-    ("/model", "Set status model name", True),
-    ("/next", "Next chapter", False),
-    ("/prev", "Previous chapter", False),
-    ("/resp", "Reply length in chars", True),
-    ("/speed", "Streaming speed 1-10", True),
-    ("/toc", "Chapter list", False),
-    ("/tools", "Toggle fake tool calls", False),
+    ("/auto", ("Auto-read (N = interval s)", "自动阅读（N=间隔秒）"), True),
+    ("/bm", ("Bookmarks — enter jump · d delete", "书签（回车跳转 · d 删除）"), False),
+    ("/bm add", ("Add bookmark (optional name)", "在当前位置加书签（可命名）"), False),
+    ("/book", ("Open book library", "打开书库"), False),
+    ("/boss", ("Boss mode", "老板模式"), False),
+    ("/ch", ("Jump to chapter N", "跳到第 N 章"), True),
+    ("/clear", ("Clear screen", "清屏"), False),
+    ("/exit", ("Quit", "退出"), False),
+    ("/find", ("Search in book", "全文搜索"), True),
+    ("/goto", ("Jump to percent (e.g. 50%)", "按百分比跳转（如 50%）"), True),
+    ("/help", ("Show shortcuts", "显示快捷键"), False),
+    ("/import", ("Import a book file (browse)", "导入书本（文件选择框）"), False),
+    ("/lang", ("UI language: zh / en", "界面语言：中文/English"), True),
+    ("/model", ("Set status model name", "设置状态栏模型名"), True),
+    ("/next", ("Next chapter", "下一章"), False),
+    ("/prev", ("Previous chapter", "上一章"), False),
+    ("/resp", ("Reply length in chars", "每轮回复字数"), True),
+    ("/speed", ("Streaming speed 1-10", "流式速度 1-10"), True),
+    ("/toc", ("Chapter list", "章节目录（分卷）"), False),
+    ("/tools", ("Toggle fake tool calls", "假工具行开关"), False),
 ]
 
-# 空输入框的占位提示（dim，轮换显示，仿 Claude Code）
-PLACEHOLDERS = [
-    'Try "continue"',
-    "Type / for commands",
-    "继续读下一章",
-    "@ 提到一本书直接切换",
-    "Ask anything to keep reading",
-]
+# 空输入框的占位提示（dim，轮换显示）
+PLACEHOLDERS = {
+    "zh": ['试试输入"继续"', "输入 / 查看命令", "回车继续读下一章",
+           "@书名 直接切换", "随便聊点什么也行"],
+    "en": ['Try "continue"', "Type / for commands", "继续读下一章",
+           "@ 提到一本书直接切换", "Ask anything to keep reading"],
+}
 
 
 def slash_menu_items(typed: str) -> list[tuple[str, str, bool]]:
@@ -1176,7 +1195,7 @@ class Shell:
         self.input_text = ""
         self.input_pos = 0
         self.placeholder = ""
-        self.hint_l = "? for shortcuts"
+        self.hint_l = tr("? for shortcuts", "？查看快捷键")
         self.hint_r = ""
         self.model = "opus-4.8"
         self.tokens = 0
@@ -1328,7 +1347,7 @@ class Shell:
         self.hint_l = text
         self.draw_footer()
         if seconds > 0:
-            self._flash_restore = (time.time() + seconds, "? for shortcuts")
+            self._flash_restore = (time.time() + seconds, tr("? for shortcuts", "？查看快捷键"))
 
     def check_flash_restore(self):
         if self._flash_restore and time.time() > self._flash_restore[0]:
@@ -1461,6 +1480,8 @@ def paras_exhausted(book: "Book", ch: int, para: int) -> bool:
 class App:
     def __init__(self, args):
         self.args = args
+        set_lang((load_progress().get("settings", {}) or {}).get("lang")
+                 or os.environ.get("CCNOVEL_LANG") or "zh")
         self.shell = Shell()
         self.keys = None
         self.book: Book | None = None
@@ -1479,7 +1500,7 @@ class App:
         self._hist_idx: int | None = None
         self._pending: str | None = None
         self._menu: dict | None = None        # 补全菜单状态
-        self._ph_i = random.randrange(len(PLACEHOLDERS))
+        self._ph_i = random.randrange(len(PLACEHOLDERS[_LANG]))
         self._ph_t = time.time()
         self._last_save = 0.0
         self._spin_t = 0.0
@@ -1563,7 +1584,7 @@ class App:
         }
         p["settings"] = {"speed": self.speed, "auto": self.auto,
                          "resp": self.resp, "auto_delay": self.auto_delay,
-                         "tools": self.show_tools, "model": self.shell.model}
+                         "tools": self.show_tools, "model": self.shell.model, "lang": _LANG}
         save_progress(p)
         self._last_save = time.time()
 
@@ -1592,11 +1613,11 @@ class App:
               "ts": time.strftime("%m-%d %H:%M")}
         self.bookmarks.append(bm)
         self._save()
-        self.shell.flash_hint(f"bookmark added: {bm['name']} — /bm to jump")
+        self.shell.flash_hint(tr(f"bookmark added: {bm['name']} — /bm to jump", f"已加书签：{bm['name']}（/bm 跳转）"))
 
     def _bookmark_dialog(self):
         if not self.bookmarks:
-            self.shell.flash_hint("no bookmarks — press m or /bm add NAME")
+            self.shell.flash_hint(tr("no bookmarks — press m or /bm add NAME", "还没有书签——按 m 或 /bm add 名称"))
             return
         sh = self.shell
         max_rows = min(12, sh.rows - FOOTER_H - 3, len(self.bookmarks))
@@ -1606,11 +1627,11 @@ class App:
             bm = self.bookmarks[i]
             return f"{bm['name']}  ·  {self.book.chapters[bm['ch']][0][:16]}  ·  {bm['ts']}"
 
-        sh.hint_l = "enter jump · d delete · esc cancel"
+        sh.hint_l = tr("enter jump · d delete · esc cancel", "回车 跳转 · d 删除 · Esc 取消")
         sh.draw_footer()
         n_lines = max_rows + 2
         top = sh.hist_bottom - n_lines + 1
-        n_lines = draw_dialog(sh, top, "Bookmarks",
+        n_lines = draw_dialog(sh, top, tr("Bookmarks", "书签"),
                               [item(i) for i in range(len(self.bookmarks))],
                               sel, offset, max_rows)
         try:
@@ -1641,7 +1662,7 @@ class App:
                         offset = sel
                     if sel >= offset + max_rows:
                         offset = sel - max_rows + 1
-                    n_lines = draw_dialog(sh, top, "Bookmarks",
+                    n_lines = draw_dialog(sh, top, tr("Bookmarks", "书签"),
                                           [item(i) for i in range(len(self.bookmarks))],
                                           sel, offset, max_rows)
                     continue
@@ -1653,7 +1674,7 @@ class App:
                         sh.flash_hint(f"deleted: {name}")
                         break
                     sel = min(sel, len(self.bookmarks) - 1)
-                    n_lines = draw_dialog(sh, top, "Bookmarks",
+                    n_lines = draw_dialog(sh, top, tr("Bookmarks", "书签"),
                                           [item(i) for i in range(len(self.bookmarks))],
                                           sel, offset, max_rows)
                     continue
@@ -1665,7 +1686,7 @@ class App:
                 break
         finally:
             clear_dialog(sh, top, n_lines)
-            sh.hint_l = "? for shortcuts"
+            sh.hint_l = tr("? for shortcuts", "？查看快捷键")
             sh.draw_footer()
             sh.park_cursor()
 
@@ -1680,7 +1701,7 @@ class App:
     def _find_dialog(self, kw: str):
         kw = kw.strip()
         if not kw:
-            self.shell.flash_hint("usage: /find keyword")
+            self.shell.flash_hint(tr("usage: /find keyword", "用法：/find 关键词"))
             return
         lk = kw.lower()
         hits: list[tuple[int, int, int, str]] = []
@@ -1696,9 +1717,9 @@ class App:
             if len(hits) >= 80:
                 break
         if not hits:
-            self.shell.flash_hint(f"no matches: {kw[:16]}")
+            self.shell.flash_hint(tr(f"no matches: {kw[:16]}", f"没有找到：{kw[:16]}"))
             return
-        sel = self._dialog(f'Find "{kw[:12]}"', [h[3] for h in hits])
+        sel = self._dialog(f'{tr("Find", "搜索")} "{kw[:12]}"', [h[3] for h in hits])
         if sel is None:
             return
         ci, pi, pos, _ = hits[sel]
@@ -1718,13 +1739,13 @@ class App:
             left = f"   /{cmd}"
             gap = max(1, 17 - dwidth(left))
             left_full = left + " " * gap
-            desc = vtruncate(desc, max(8, inner - dwidth(left_full)))
+            desc = vtruncate(L(desc), max(8, inner - dwidth(left_full)))
             pad = inner - dwidth(left_full) - dwidth(desc)
             lines.append(GRAY + "│" + RESET + left_full + f"{GRAY}{desc}{RESET}"
                          + " " * max(0, pad) + GRAY + "│" + RESET)
         lines.append(GRAY + "╰" + "─" * inner + "╯" + RESET)
         lines.append("")
-        lines.append(f" {GRAY}Try \"continue\" to keep reading.{RESET}")
+        lines.append(" " + GRAY + tr('Try "continue" to keep reading.', '试试 "继续" —— 回车即可接着读') + RESET)
         sh.print_block(lines)
         sh.print_line("")
 
@@ -1735,7 +1756,7 @@ class App:
             return None
         max_rows = min(12, sh.rows - FOOTER_H - 3, len(items))
         sel, offset = 0, 0
-        sh.hint_l = "↑/↓ select · enter confirm · esc cancel"
+        sh.hint_l = tr("↑/↓ select · enter confirm · esc cancel", "↑/↓ 选择 · 回车 确认 · Esc 取消")
         sh.draw_footer()
         n_lines = max_rows + 2
         top = sh.hist_bottom - n_lines + 1
@@ -1775,7 +1796,7 @@ class App:
                 n_lines = draw_dialog(sh, top, title, items, sel, offset, max_rows)
         finally:
             clear_dialog(sh, top, n_lines)
-            sh.hint_l = "? for shortcuts"
+            sh.hint_l = tr("? for shortcuts", "？查看快捷键")
             sh.draw_footer()
             sh.park_cursor()
 
@@ -1792,13 +1813,13 @@ class App:
             e = p["books"].get(str(b))
             return (-(e.get("ts", 0) if e else 0), b.name.lower())
 
-        rows: list[tuple[Path | None, str]] = [(None, "Import a file…")]
+        rows: list[tuple[Path | None, str]] = [(None, tr("Import a file…", "导入文件…"))]
         for b in sorted(books, key=sort_key):
             e = p["books"].get(str(b))
             if e and e.get("total"):
                 tag = f"{min(100, round(e.get('chars', 0) * 100 / e['total'])):3d}%"
             else:
-                tag = "new "
+                tag = tr("new ", "未读")
             mark = "●" if cur_path and b == cur_path else " "
             rows.append((b, f"{mark}[{tag}] {b.name}"))
         return rows
@@ -1807,15 +1828,15 @@ class App:
         sh = self.shell
         rows = self._library_rows()
         if len(rows) == 1:
-            sh.print_line(f"{RED}no books found in {books_dir()}{RESET}")
+            sh.print_line(f"{RED}" + tr(f"no books found in {books_dir()}", f"书库为空：{books_dir()}") + f"{RESET}")
             return None
         sel, offset = 1 if len(rows) > 1 else 0, 0
         max_rows = min(12, sh.rows - FOOTER_H - 3, len(rows))
         armed_del: tuple[int, str] | None = None  # 删除确认（同项再按一次 d）
-        sh.hint_l = "↑/↓ select · enter open · d delete · esc cancel"
+        sh.hint_l = tr("↑/↓ select · enter open · d delete · esc cancel", "↑/↓ 选择 · 回车 打开 · d 删除 · Esc 取消")
         sh.draw_footer()
         top = sh.hist_bottom - (max_rows + 2) + 1
-        n_lines = draw_dialog(sh, top, "Choose a file",
+        n_lines = draw_dialog(sh, top, tr("Choose a file", "选择文件"),
                               [r[1] for r in rows], sel, offset, max_rows)
         try:
             while True:
@@ -1845,26 +1866,26 @@ class App:
                         offset = sel
                     if sel >= offset + max_rows:
                         offset = sel - max_rows + 1
-                    n_lines = draw_dialog(sh, top, "Choose a file",
+                    n_lines = draw_dialog(sh, top, tr("Choose a file", "选择文件"),
                                           [r[1] for r in rows], sel, offset, max_rows)
                     continue
                 if act == "del":
                     b = rows[sel][0]
                     if b is None or (self.book and b == self.book.path):
-                        sh.flash_hint("cannot delete the open book")
+                        sh.flash_hint(tr("cannot delete the open book", "不能删除正在阅读的书"))
                         continue
                     if armed_del and armed_del[0] == sel:
                         try:
                             b.unlink()
                         except OSError as e:
-                            sh.flash_hint(f"delete failed: {e}")
+                            sh.flash_hint(tr(f"delete failed: {e}", f"删除失败：{e}"))
                             armed_del = None
                             continue
                         p = load_progress()
                         p["books"].pop(str(b), None)
                         save_progress(p)
                         rows.pop(sel)
-                        sh.flash_hint(f"deleted: {b.name}")
+                        sh.flash_hint(tr(f"deleted: {b.name}", f"已删除：{b.name}"))
                         armed_del = None
                         if sel >= len(rows):
                             sel = len(rows) - 1
@@ -1872,8 +1893,8 @@ class App:
                             return None
                     else:
                         armed_del = (sel, b.name)
-                        sh.flash_hint(f"press d again to delete {b.name}", 3.0)
-                    n_lines = draw_dialog(sh, top, "Choose a file",
+                        sh.flash_hint(tr(f"press d again to delete {b.name}", f"再按一次 d 删除 {b.name}"), 3.0)
+                    n_lines = draw_dialog(sh, top, tr("Choose a file", "选择文件"),
                                           [r[1] for r in rows], sel, offset, max_rows)
                     continue
                 # open
@@ -1884,35 +1905,35 @@ class App:
                     rows = self._library_rows()  # 导入取消 → 刷新列表
                     if len(rows) == 1:
                         return None
-                    n_lines = draw_dialog(sh, top, "Choose a file",
+                    n_lines = draw_dialog(sh, top, tr("Choose a file", "选择文件"),
                                           [r[1] for r in rows], sel, offset, max_rows)
                     continue
                 sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} {GRAY}{rows[sel][0].name}{RESET}")
                 return self._open_book(rows[sel][0])
         finally:
             clear_dialog(sh, top, n_lines)
-            sh.hint_l = "? for shortcuts"
+            sh.hint_l = tr("? for shortcuts", "？查看快捷键")
             sh.draw_footer()
             sh.park_cursor()
 
     def _import_book(self) -> Book | None:
         """弹出系统文件选择框 → 复制进 books/ → 打开。返回 Book 或 None。"""
         sh = self.shell
-        sh.flash_hint("opening file dialog…", 0)
+        sh.flash_hint(tr("opening file dialog…", "正在打开文件选择框…"), 0)
         src = pick_file_dialog()
         if src is None:
-            sh.flash_hint("import canceled — put files in books/ or try /import")
+            sh.flash_hint(tr("import canceled — put files in books/ or try /import", "已取消导入——把文件放进 books/ 或用 /import"))
             return None
         try:
             target = unique_copy(src, books_dir())
         except OSError as e:
-            sh.print_line(f"{RED}import failed: {e}{RESET}")
+            sh.print_line(f"{RED}" + tr(f"import failed: {e}", f"导入失败：{e}") + f"{RESET}")
             return None
         b = self._open_book(target)
         if b is None:
-            sh.print_line(f"{RED}unsupported file: {target.name}{RESET}")
+            sh.print_line(f"{RED}" + tr(f"unsupported file: {target.name}", f"暂不支持的格式：{target.name}") + f"{RESET}")
             return None
-        sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} {GRAY}imported: {target.name}{RESET}")
+        sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} " + GRAY + tr(f"imported: {target.name}", f"已导入：{target.name}") + RESET)
         self.book = b
         self._resume_progress()
         sh.cwd = f"~/books/{self.book.title} (main)"
@@ -1944,13 +1965,13 @@ class App:
         sel = next((i for i, r in enumerate(rows)
                     if r[0] == "ch" and r[3] == self.ch), 0)
         offset = max(0, min(sel - max_rows // 2, max(0, len(rows) - max_rows)))
-        sh.hint_l = "↑/↓ select · enter open / expand · esc cancel"
+        sh.hint_l = tr("↑/↓ select · enter open / expand · esc cancel", "↑/↓ 选择 · 回车 打开/展开 · Esc 取消")
         sh.draw_footer()
         top = sh.hist_bottom - (max_rows + 2) + 1
 
         def draw():
             w = min(sh.cols, 46)
-            head = f"╭─ Chapters "
+            head = "╭─ " + tr("Chapters", "章节目录") + " "
             head += "─" * max(1, w - dwidth(head) - 1) + "╮"
             body = [GRAY + head + RESET]
             for j in range(max_rows):
@@ -2029,19 +2050,48 @@ class App:
                 return
         finally:
             clear_dialog(sh, top, n_lines)
-            sh.hint_l = "? for shortcuts"
+            sh.hint_l = tr("? for shortcuts", "？查看快捷键")
             sh.draw_footer()
             sh.park_cursor()
 
     def _help_dialog(self):
-        items = [
+        zh = [
+            "回车 / 空格      继续阅读（下一轮回复）",
+            "空格（流式中）    暂停 / 继续",
+            "n / p            下一章 / 上一章",
+            "t                章节目录（分卷折叠）",
+            "m                在当前位置加书签",
+            "b / Ctrl+B       老板模式（一键掩护）",
+            "Esc              中断流式 / 清空输入框",
+            "↑ / ↓（输入中）   历史命令召回 / 菜单选择",
+            "Tab              补全菜单选中项",
+            "@书名            引用并切换到那本书",
+            "!命令            假装执行一条 shell 命令",
+            "i / /import      弹文件选择框导入书本",
+            "/bm              书签列表（回车跳转 · d 删除）",
+            "/bm add 名称     加命名书签",
+            "/goto 50%        按全书百分比跳转",
+            "/ch 12           跳到第 12 章",
+            "/find 关键词     全文搜索并跳转",
+            "/speed 1-10      流式打字速度",
+            "/resp 2000       每轮回复字数（默认 1200）",
+            "/auto [N]        自动阅读（N=轮间隔秒）",
+            "/tools           假工具行开关",
+            "/book            书库（进度% · d 删除 · 导入）",
+            "/model 名称      状态栏模型名",
+            "/lang zh|en      界面语言",
+            "/clear           清屏",
+            "/exit            退出（或 Ctrl+C 两次）",
+        ]
+        en = [
             "enter / space   continue reading",
+            "space (stream)  pause / resume",
             "n / p           next / previous chapter",
-            "t               chapter list (toc)",
+            "t               chapter list (volumes)",
             "m               add bookmark here",
             "b / ctrl-b      boss mode",
             "esc             interrupt streaming / clear input",
-            "↑/↓ (typing /)  slash command autocomplete",
+            "↑/↓ (typing)    history recall / menu select",
             "tab             complete menu selection",
             "@书名           switch book by @mention",
             "!cmd            fake bash run",
@@ -2055,12 +2105,13 @@ class App:
             "/resp 2000      reply length in chars per turn",
             "/auto [N]       auto-read (N = interval seconds)",
             "/tools          toggle fake tool calls",
-            "/book           open book library",
+            "/book           library (progress% · d delete · import)",
             "/model NAME     model name in status bar",
+            "/lang zh|en     UI language",
             "/clear          clear screen",
             "/exit           quit (or ctrl-c twice)",
         ]
-        self._dialog("Shortcuts", items)
+        self._dialog(tr("Shortcuts", "快捷键"), zh if _LANG == "zh" else en)
 
     # ---- 输入框循环 --------------------------------------------------
     # ---- 输入框补全菜单（/ 命令、@ 书名） ---------------------------
@@ -2102,6 +2153,7 @@ class App:
         n = 0
         for i, (label, desc, _arg) in enumerate(m["items"][m["offset"]: m["offset"] + m["rows"]]):
             idx = m["offset"] + i
+            desc = L(desc)
             if idx == m["sel"]:
                 row = (f" {ORANGE}{SYM_PROMPT}{RESET} {BOLD}{label}{RESET}"
                        + " " * max(2, 16 - dwidth(label)) + f"{GRAY}{desc}{RESET}")
@@ -2140,7 +2192,7 @@ class App:
             sh.park_cursor()
             if exec_after:
                 if needs_arg:
-                    sh.flash_hint(f"usage: {label} …")
+                    sh.flash_hint(tr(f"usage: {label} …", f"用法：{label} …"))
                 else:
                     self._submit_input()
         else:  # @ 书名
@@ -2165,15 +2217,15 @@ class App:
         now = time.time()
         if now - self._ph_t < 4.0:
             if not sh.placeholder and not sh.input_text and not self._menu:
-                sh.placeholder = PLACEHOLDERS[self._ph_i]
+                sh.placeholder = PLACEHOLDERS[_LANG][self._ph_i % len(PLACEHOLDERS[_LANG])]
                 sh.draw_footer()
                 sh.park_cursor()
             return
         self._ph_t = now
         if sh.input_text or self._menu:
             return
-        self._ph_i = (self._ph_i + 1) % len(PLACEHOLDERS)
-        sh.placeholder = PLACEHOLDERS[self._ph_i]
+        self._ph_i = (self._ph_i + 1) % len(PLACEHOLDERS[_LANG])
+        sh.placeholder = PLACEHOLDERS[_LANG][self._ph_i % len(PLACEHOLDERS[_LANG])]
         sh.draw_footer()
         sh.park_cursor()
 
@@ -2195,7 +2247,7 @@ class App:
     # ---- 输入框主循环 ------------------------------------------------
     def _input_loop(self):
         sh = self.shell
-        sh.placeholder = PLACEHOLDERS[self._ph_i]
+        sh.placeholder = PLACEHOLDERS[_LANG][self._ph_i % len(PLACEHOLDERS[_LANG])]
         sh.draw_footer()
         while self.running:
             ev = self.keys.get(0.1)
@@ -2324,7 +2376,7 @@ class App:
 
     def _confirm_exit(self) -> bool:
         sh = self.shell
-        sh.flash_hint("^C  press ctrl-c again to exit", 2.0)
+        sh.flash_hint(tr("^C  press ctrl-c again to exit", "^C  再按一次 Ctrl+C 退出"), 2.0)
         t0 = time.time()
         while time.time() - t0 < 2.0:
             ev = self.keys.get(0.1)
@@ -2381,31 +2433,31 @@ class App:
             m = re.search(r"(\d+)", cmd)
             if m:
                 self.speed = max(1, min(10, int(m.group(1))))
-                sh.flash_hint(f"speed = {self.speed}")
+                sh.flash_hint(tr(f"speed = {self.speed}", f"速度 = {self.speed}"))
             else:
-                sh.flash_hint("usage: /speed 1-10")
+                sh.flash_hint(tr("usage: /speed 1-10", "用法：/speed 1-10"))
             return True
         m = re.match(r"/resp\s+(\d+)", low)
         if m:
             self.resp = max(50, min(20000, int(m.group(1))))
             self._save()
-            sh.flash_hint(f"reply length = {self.resp} chars per turn")
+            sh.flash_hint(tr(f"reply length = {self.resp} chars per turn", f"每轮回复字数 = {self.resp}"))
             return True
         if low in ("/resp", "resp"):
-            sh.flash_hint(f"reply length = {self.resp} — usage: /resp 2000")
+            sh.flash_hint(tr(f"reply length = {self.resp} — usage: /resp 2000", f"每轮字数 = {self.resp}——用法：/resp 2000"))
             return True
         m = re.match(r"/auto\s+(\d+(?:\.\d+)?)", low)
         if m:
             self.auto_delay = max(0.3, min(10.0, float(m.group(1))))
             self.auto = True
             self._save()
-            sh.flash_hint(f"auto-read on · interval {self.auto_delay}s")
+            sh.flash_hint(tr(f"auto-read on · interval {self.auto_delay}s", f"自动阅读 开 · 间隔 {self.auto_delay} 秒"))
             return True
         if low in ("/auto", "auto"):
             self.auto = not self.auto
             self._save()
-            sh.flash_hint(f"auto-read {'on' if self.auto else 'off'}"
-                          + (f" · interval {self.auto_delay}s" if self.auto else ""))
+            sh.flash_hint(tr(f"auto-read {'on' if self.auto else 'off'}", f"自动阅读 {'开' if self.auto else '关'}")
+                          + (tr(f" · interval {self.auto_delay}s", f" · 间隔 {self.auto_delay} 秒") if self.auto else ""))
             return True
         if low in ("/tools", "tools"):
             self.show_tools = not self.show_tools
@@ -2415,7 +2467,16 @@ class App:
         if m:
             sh.model = m.group(1)
             sh.update_tokens(sh.tokens)
-            sh.flash_hint(f"model = {sh.model}")
+            sh.flash_hint(tr(f"model = {sh.model}", f"模型 = {sh.model}"))
+            return True
+        m = re.match(r"/lang\s+(zh|en|chinese|english|中文|英文)", low)
+        if m:
+            lang = set_lang(m.group(1))
+            self._save()
+            sh.flash_hint(tr("language: English", f"界面语言：{'中文' if lang == 'zh' else 'English'}"))
+            return True
+        if low in ("/lang", "lang"):
+            sh.flash_hint(tr("usage: /lang zh | en", "用法：/lang zh | en"))
             return True
         if low in ("/boss", "boss"):
             self._boss_mode()
@@ -2437,8 +2498,7 @@ class App:
             pct = max(0.0, min(100.0, float(m.group(1))))
             target = int(self.book.total_chars * pct / 100)
             ch, para = self.book.locate(target)
-            sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} {GRAY}jump → {pct:.0f}% "
-                          f"{self.book.chapters[ch][0]}{RESET}")
+            sh.print_line(f"{ORANGE}{SYM_PROMPT}{RESET} " + GRAY + tr(f"jump → {pct:.0f}%", f"跳转 → {pct:.0f}%") + f" {self.book.chapters[ch][0]}{RESET}")
             self._jump_to(ch, para, 0)
             return True
         m = re.match(r"/ch\s+(\d+)", low)
@@ -2447,7 +2507,7 @@ class App:
             if 0 <= idx < len(self.book.chapters):
                 self._goto_chapter(idx)
             else:
-                sh.flash_hint(f"1-{len(self.book.chapters)} only")
+                sh.flash_hint(tr(f"1-{len(self.book.chapters)} only", f"仅支持 1-{len(self.book.chapters)}"))
             return True
         m = re.match(r"/(?:find|search)\s+(.+)", cmd, re.I)
         if m:
@@ -2462,7 +2522,7 @@ class App:
 
     def _goto_chapter(self, idx: int):
         if not 0 <= idx < len(self.book.chapters):
-            self.shell.flash_hint("no more chapters")
+            self.shell.flash_hint(tr("no more chapters", "没有更多章节了"))
             return
         self.ch, self.para, self.off = idx, 0, 0
         self.chars_read = self.book.offset_of(idx, 0)
@@ -2484,7 +2544,7 @@ class App:
                     self._save()
                     result = self._stream_once()
                     continue
-                self.shell.flash_hint("no more chapters")
+                self.shell.flash_hint(tr("no more chapters", "没有更多章节了"))
                 break
             if self.auto and self.running and (
                     result == "chunk"
@@ -2513,11 +2573,11 @@ class App:
             if ev:
                 if self._stream_key(ev, in_text=False) in ("stop", "boss"):
                     sh.set_spinner(False)
-                    sh.hint_l = "? for shortcuts"
+                    sh.hint_l = tr("? for shortcuts", "？查看快捷键")
                     sh.draw_footer()
                     return "stop"
         sh.set_spinner(False)
-        sh.hint_l = "? for shortcuts"
+        sh.hint_l = tr("? for shortcuts", "？查看快捷键")
         return "go"
 
     def _stream_once(self) -> str:
@@ -2530,7 +2590,7 @@ class App:
                 self.chars_read = self.book.offset_of(self.ch, 0)
                 self._save()
             else:
-                sh.flash_hint("book finished — /goto 0% to restart")
+                sh.flash_hint(tr("book finished — /goto 0% to restart", "全书读完——/goto 0% 重读"))
                 return "book_end"
         title, paras = self.book.chapters[self.ch]
         fresh = self.para == 0 and self.off == 0
@@ -2567,15 +2627,15 @@ class App:
         if result == "eof":
             self._save()
             if self.ch + 1 < len(self.book.chapters):
-                sh.flash_hint("chapter finished — enter to continue", 3.0)
+                sh.flash_hint(tr("chapter finished — enter to continue", "本章读完——回车继续下一章"), 3.0)
             else:
-                sh.flash_hint("book finished — /goto 0% to restart", 3.0)
+                sh.flash_hint(tr("book finished — /goto 0% to restart", "全书读完——/goto 0% 重读"), 3.0)
         return result
 
     def _end_stream_ui(self):
         sh = self.shell
         sh.set_spinner(False)
-        sh.hint_l = "? for shortcuts"
+        sh.hint_l = tr("? for shortcuts", "？查看快捷键")
         self._update_status()
         sys.stdout.write(SHOW_CURSOR)
         sys.stdout.flush()
@@ -2696,7 +2756,7 @@ class App:
         sys.stdout.write(CLEAR_SCROLLBACK + CLEAR_SCREEN)
         sh.cwd = f"~/books/{self.book.title} (main)"
         sh.set_spinner(False)
-        sh.hint_l = "? for shortcuts"
+        sh.hint_l = tr("? for shortcuts", "？查看快捷键")
         self._update_status()
 
 
@@ -2757,7 +2817,7 @@ def run_demo(args):
         time.sleep(0.08)
         app.chars_read += len(para)
         sh.update_tokens(app.chars_read // 2)
-    sh.hint_l = "? for shortcuts"
+    sh.hint_l = tr("? for shortcuts", "？查看快捷键")
     sh.update_tokens(app.chars_read // 2)
     time.sleep(0.3)
     sh.teardown()
@@ -2883,6 +2943,12 @@ def run_selftest():
              "nothing to commit, working tree clean")
     ok &= _t("/import in commands", any(c[0] == "/import" for c in FAKE_COMMANDS))
     ok &= _t("/resp in commands", any(c[0] == "/resp" for c in FAKE_COMMANDS))
+    ok &= _t("/lang in commands", any(c[0] == "/lang" for c in FAKE_COMMANDS))
+    ok &= _t("tr/L language switch",
+             tr("en-text", "中文字") == "中文字" and L(("en", "中")) == "中"
+             and set_lang("en") == "en" and tr("en-text", "中文字") == "en-text"
+             and L(("en", "中")) == "en")
+    set_lang("zh")
     ensure_sample_book()
     _sb = Book(books_dir() / "示例小说.txt")
     ok &= _t("paras_exhausted", paras_exhausted(_sb, 0, len(_sb.chapters[0][1]))
@@ -2913,7 +2979,7 @@ def run_selftest():
         src.write_text("different", encoding="utf-8")
         t3 = unique_copy(src, lib)                       # 同名不同内容 → (1)
         ok &= _t("unique_copy suffix", t3.name == "a (1).txt" and t3.read_text() == "different")
-    ok &= _t("placeholders", len(PLACEHOLDERS) >= 3)
+    ok &= _t("placeholders", len(PLACEHOLDERS["zh"]) >= 3 and len(PLACEHOLDERS["en"]) >= 3)
     sh2 = Shell()
     sh2.rows, sh2.cols = 30, 80
     sh2.placeholder = 'Try "continue"'

@@ -154,7 +154,8 @@ def main():
     ok = True
 
     scr = read_screen(h_out)
-    dialog_row = next((i for i, l in enumerate(scr) if "Choose a file" in l), None)
+    dialog_row = next((i for i, l in enumerate(scr)
+                      if "Choose a file" in l or "选择文件" in l), None)
     print("dialog on screen:", dialog_row is not None)
     ok &= dialog_row is not None
     if dialog_row is None:
@@ -162,7 +163,7 @@ def main():
 
     def marker_row():
         s = read_screen(h_out)
-        rows = [i for i, l in enumerate(s) if "❯" in l and dialog_row and abs(i - dialog_row) <= 6]
+        rows = [i for i, l in enumerate(s) if "❯" in l and dialog_row and abs(i - dialog_row) <= 10]
         return rows[0] if rows else None
 
     r0 = marker_row()

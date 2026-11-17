@@ -12,3 +12,4 @@ script_exe.txt
 tools/_tmp*/
 tools/_import_src/
 tools/_probe_result.txt
+release/

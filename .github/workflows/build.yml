@@ -17,8 +17,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyinstaller
-      - run: pyinstaller --onefile --clean --name cc-novelreader --distpath dist --workpath build --specpath build claude_novel.py
+      - run: pyinstaller --onefile --clean --name ccreader --distpath dist --workpath build --specpath build claude_novel.py
       - uses: actions/upload-artifact@v4
         with:
-          name: cc-novelreader-${{ matrix.os }}
+          name: ccreader-${{ matrix.os }}
           path: dist/*

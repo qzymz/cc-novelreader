@@ -32,6 +32,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+__version__ = "0.4.0"
+
 IS_WIN = os.name == "nt"
 
 # ══════════════════════════════════════════════════════════════════
